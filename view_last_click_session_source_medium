@@ -1,0 +1,70 @@
+WITH 
+
+session_source_medium AS (
+  SELECT 
+    event_date,
+    event_name,
+    event_timestamp,
+    concat(user_pseudo_id, (select value.int_value from unnest(event_params) where key = 'ga_session_id')) as session_id
+  FROM `analytics-project.analytics_1234.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN '20240306' AND '20240312' AND event_name IN ('session_start')
+),
+
+users_with_purchase AS (
+  SELECT  
+    concat(user_pseudo_id, (select value.int_value from unnest(event_params) where key = 'ga_session_id')) as session_id,
+    event_name,
+    event_timestamp, 
+    ecommerce.purchase_revenue as purchase_revenue
+  FROM `analytics-project.analytics_1234.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN '20240306' AND '20240312' AND event_name IN ('purchase')
+),
+
+purchase_session_medium_campaign AS (
+  SELECT 
+    PARSE_DATE("%Y%m%d", event_date) AS event_date,
+    session_id,
+    region,
+    source,
+    CASE 
+      WHEN source = 'google' AND medium = 'organic' AND gclid IS NOT NULL THEN 'cpc'
+      ELSE medium
+    END AS medium, 
+    gclid,
+    campaign,
+    uwp.event_timestamp as purchase_timestamp,
+    uwp.purchase_revenue AS purchase_revenue
+  FROM session_source_medium ssm 
+  INNER JOIN users_with_purchase uwp USING(session_id)
+),
+
+last_click_attribution AS (
+  SELECT 
+    event_date AS date,
+    CASE
+      WHEN source IS NULL AND gclid IS NOT NULL THEN 'google'
+      WHEN source IS NULL AND gclid IS NULL THEN '(direct)'
+      ELSE source
+    END AS source,
+    CASE 
+      WHEN medium IS NULL AND gclid IS NOT NULL THEN 'cpc'
+      WHEN medium IS NULL AND gclid IS NULL THEN '(none)'
+      ELSE medium
+    END AS medium,
+    campaign,
+    COUNT(session_id) AS transactions,
+    SUM(purchase_revenue) AS revenue,
+  FROM purchase_session_medium_campaign
+  GROUP BY 1, 2, 3, 4, 5
+)
+
+SELECT 
+  date,
+  region,
+  CONCAT(source, ' / ', medium) as source_medium,
+  source,
+  medium,
+  campaign,
+  transactions,
+  revenue,
+FROM last_click_attribution
