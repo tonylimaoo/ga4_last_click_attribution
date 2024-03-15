@@ -5,7 +5,11 @@ session_source_medium AS (
     event_date,
     event_name,
     event_timestamp,
-    concat(user_pseudo_id, (select value.int_value from unnest(event_params) where key = 'ga_session_id')) as session_id
+    concat(user_pseudo_id, (select value.int_value from unnest(event_params) where key = 'ga_session_id')) as session_id,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source, 
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium, 
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'gclid') AS gclid 
   FROM `analytics-project.analytics_1234.events_*`
   WHERE _TABLE_SUFFIX BETWEEN '20240306' AND '20240312' AND event_name IN ('session_start')
 ),
@@ -24,7 +28,6 @@ purchase_session_medium_campaign AS (
   SELECT 
     PARSE_DATE("%Y%m%d", event_date) AS event_date,
     session_id,
-    region,
     source,
     CASE 
       WHEN source = 'google' AND medium = 'organic' AND gclid IS NOT NULL THEN 'cpc'
@@ -55,12 +58,11 @@ last_click_attribution AS (
     COUNT(session_id) AS transactions,
     SUM(purchase_revenue) AS revenue,
   FROM purchase_session_medium_campaign
-  GROUP BY 1, 2, 3, 4, 5
+  GROUP BY 1, 2, 3, 4
 )
 
 SELECT 
   date,
-  region,
   CONCAT(source, ' / ', medium) as source_medium,
   source,
   medium,
